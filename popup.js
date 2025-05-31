@@ -52,11 +52,13 @@ document.addEventListener('DOMContentLoaded', function() {
         showStatus('Search completed - no results found', 'info');
       }
       
+      // Re-enable button
+      searchBtn.disabled = false;
+      searchBtn.textContent = 'Search';
+      
     } catch (error) {
       console.error('Search error:', error);
       showStatus('Error during search: ' + error.message, 'error');
-    } finally {
-      // Re-enable button
       searchBtn.disabled = false;
       searchBtn.textContent = 'Search';
     }
@@ -236,61 +238,208 @@ function searchAllPages(searchTerm) {
         hasPages: false,
         currentPage: 1,
         totalPages: 1,
-        nextButton: null
+        nextButton: null,
+        rangeInput: null
       };
       
-      // Look for pagination elements
-      const paginationSelectors = [
-        '[id*="paging"]',
-        '.paging',
-        '[id*="nav"]',
-        '[class*="page"]'
-      ];
-      
-      paginationSelectors.forEach(selector => {
-        const element = document.querySelector(selector);
-        if (element) {
-          const text = element.textContent;
-          const pageMatch = text.match(/page\s+(\d+)\s+of\s+(\d+)/i);
-          if (pageMatch) {
+      // Look for NetSuite's range input
+      const rangeInput = document.querySelector('input[name="inpt_scriptnoterange"]');
+      if (rangeInput) {
+        const title = rangeInput.getAttribute('title');
+        if (title) {
+          const match = title.match(/(\d+)\s+to\s+(\d+)\s+of\s+(\d+)/);
+          if (match) {
             paginationInfo.hasPages = true;
-            paginationInfo.currentPage = parseInt(pageMatch[1]);
-            paginationInfo.totalPages = parseInt(pageMatch[2]);
+            paginationInfo.currentPage = Math.ceil(parseInt(match[1]) / 25); // Assuming 25 items per page
+            paginationInfo.totalPages = Math.ceil(parseInt(match[3]) / 25);
+            paginationInfo.rangeInput = rangeInput;
+            
+            // Find the dropdown arrow
+            const dropdownArrow = document.querySelector(`span[data-input-id="${rangeInput.id}"]`);
+            if (dropdownArrow) {
+              paginationInfo.nextButton = dropdownArrow;
+            }
           }
         }
-      });
-      
-      // Find next button
-      const nextSelectors = [
-        'a[id*="next"]',
-        'input[value*="Next"]',
-        'a[title*="Next"]',
-        'img[alt*="Next"]'
-      ];
-      
-      nextSelectors.forEach(selector => {
-        const button = document.querySelector(selector);
-        if (button && !button.disabled) {
-          paginationInfo.nextButton = button;
-        }
-      });
+      }
       
       return paginationInfo;
+    }
+    
+    // Function to wait for content to load
+    function waitForContent() {
+      return new Promise(resolve => {
+        const checkContent = () => {
+          const content = document.querySelector('table[id*="log"] tr td, #div__bodytab tbody tr td');
+          if (content) {
+            resolve();
+          } else {
+            setTimeout(checkContent, 500);
+          }
+        };
+        checkContent();
+      });
+    }
+    function openDropdown() {
+      const dropdownArrow = document.querySelector('span.ddarrowSpan.uir-field-dropdown-arrow');
+      const dropdownInput = document.getElementById('inpt_scriptnoterange_3');
+      console.log('openDropdown', dropdownArrow);
+      if (dropdownArrow) {
+        // Try clicking the arrow first (most reliable)
+        dropdownArrow.click();
+        console.log('Dropdown arrow clicked');
+        return true;
+      } else if (dropdownInput) {
+        // Fallback to focusing and clicking the input
+        dropdownInput.focus();
+        dropdownInput.click();
+        console.log('Dropdown input clicked');
+        return true;
+      }
+      
+      console.error('Could not find dropdown element');
+      return false;
+    }
+    function openDropdownThorough() {
+      const dropdownInput = document.getElementById('inpt_scriptnoterange_3');
+      
+      if (dropdownInput) {
+        // Simulate the complete sequence of events
+        const events = [
+          new MouseEvent('mouseover', { bubbles: true }),
+          new MouseEvent('mousedown', { bubbles: true }),
+          new FocusEvent('focus', { bubbles: true }),
+          new MouseEvent('mouseup', { bubbles: true }),
+          new MouseEvent('click', { bubbles: true })
+        ];
+        
+        events.forEach(event => {
+          dropdownInput.dispatchEvent(event);
+        });
+        
+        console.log('Complete dropdown interaction simulated');
+        return true;
+      }
+      
+      return false;
+    }
+    // 2. Wait for dropdown to appear and select an option
+    async function selectDropdownOption(optionText) {
+      // First wait briefly for the dropdown animation
+      await new Promise(resolve => setTimeout(resolve, 300));
+    
+      const maxAttempts = 5;
+      let attempts = 0;
+    
+      while (attempts < maxAttempts) {
+        attempts++;
+        
+        // Find the visible dropdown container
+        const dropdownDiv = document.querySelector('.dropdownDiv[style*="visibility: visible"], .dropdownDiv[style*="display: block"]');
+        
+        if (!dropdownDiv) {
+          console.log(`Dropdown not found (attempt ${attempts})`);
+          await new Promise(resolve => setTimeout(resolve, 200));
+          continue;
+        }
+    
+        // Find all option elements
+        const options = dropdownDiv.querySelectorAll('div[id^="nl"]');
+        if (options.length === 0) {
+          console.log('No options found in dropdown');
+          return false;
+        }
+    
+        // Find the matching option (case insensitive, trimmed comparison)
+        const targetOption = Array.from(options).find(opt => 
+          opt.textContent.trim().toLowerCase() === optionText.toLowerCase().trim()
+        );
+    
+        if (targetOption) {
+          // Simulate complete mouse interaction for maximum reliability
+          const events = [
+            new MouseEvent('mouseover', { bubbles: true }),
+            new MouseEvent('mousedown', { bubbles: true }),
+            new MouseEvent('mouseup', { bubbles: true }),
+            new MouseEvent('click', { bubbles: true })
+          ];
+    
+          events.forEach(event => targetOption.dispatchEvent(event));
+          
+          console.log(`Selected option: "${optionText}"`);
+          return true;
+        }
+    
+        console.log(`Option "${optionText}" not found (attempt ${attempts})`);
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    
+      console.error(`Failed to select option after ${maxAttempts} attempts`);
+      return false;
     }
     
     // Function to go to next page
     async function goToNextPage() {
       const pagination = detectPagination();
-      if (!pagination.hasPages || !pagination.nextButton) {
+      console.log('Pagination:', pagination);
+      if (!pagination.hasPages || !pagination.rangeInput) {
         hasMorePages = false;
         return false;
       }
       
-      // Click the next button
-      pagination.nextButton.click();
+      // Calculate next range
+      const currentStart = (pagination.currentPage - 1) * 25 + 1;
+      const nextStart = currentStart + 25;
+      const totalItems = pagination.totalPages * 25;
       
-      // Wait for page to load
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (nextStart > totalItems) {
+        hasMorePages = false;
+        return false;
+      }
+
+      console.log('Pagination details:', {
+        currentPage: pagination.currentPage,
+        totalPages: pagination.totalPages,
+        nextStart,
+        totalItems
+      });
+
+      // Click the dropdown to open it
+      try {
+        openDropdownThorough();
+        const success = await selectDropdownOption('26 to 50 of 100');
+  
+        if (success) {
+          // Wait for page to load
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          console.log('success');
+        }
+
+        // dropdownButton.click();
+        // console.log('Dropdown button clicked successfully');
+      } catch (error) {
+        console.error('Error clicking dropdown button:', error);
+        return false;
+      }
+
+      // Wait for dropdown to open
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Find and click the next range option
+      const dropdownOptions = document.querySelectorAll('.uir-dropdown-option');
+      for (const option of dropdownOptions) {
+        const text = option.textContent;
+        if (text.includes(`${nextStart} to`)) {
+          option.click();
+          break;
+        }
+      }
+      
+      // Wait for content to load
+      await waitForContent();
+      
+      // Additional wait to ensure content is fully loaded
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       currentPage++;
       return true;
@@ -307,6 +456,7 @@ function searchAllPages(searchTerm) {
         
         // Search current page
         const pageResults = searchCurrentPage();
+        console.log(pageResults);
         results.push(...pageResults);
         
         // Try to go to next page

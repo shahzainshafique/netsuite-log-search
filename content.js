@@ -186,32 +186,35 @@
     init();
   }
   
-  // Listen for messages from popup
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'getPageInfo') {
-      sendResponse({
-        isLogPage: isLogPage(),
-        pagination: detectPagination(),
-        url: window.location.href
-      });
-    } else if (request.action === 'searchSelected') {
-      // Handle right-click search
-      performQuickSearch(request.searchTerm);
-    } else if (request.action === 'scrollToPosition') {
-      // Handle scrolling to a specific position
-      const { top, left } = request.position;
-      window.scrollTo({
-        top: top + window.scrollY,
-        left: left + window.scrollX,
-        behavior: 'smooth'
-      });
+  // Helper to get pagination info and change page
+  function getPageDropdownInfo() {
+    const hidden = document.querySelector('input[name="scriptnoterange"]');
+    const visible = document.querySelector('input[name="inpt_scriptnoterange"]');
+    return { hidden, visible };
+  }
+
+  function getTotalPages() {
+    const { visible } = getPageDropdownInfo();
+    if (!visible) return 1;
+    const title = visible.getAttribute('title') || '';
+    const match = title.match(/(\d+)\s*to\s*(\d+)\s*of\s*(\d+)/);
+    if (match) {
+        const perPage = parseInt(match[2]) - parseInt(match[1]) + 1;
+        const total = Math.ceil(parseInt(match[3]) / perPage);
+        return total;
     }
-  });
-  
-  // Quick search function for right-click searches
-  function performQuickSearch(searchTerm) {
-    console.log('Performing quick search for:', searchTerm);
-    
+    return 1;
+  }
+
+  function goToPageByIndex(idx) {
+    const { hidden } = getPageDropdownInfo();
+    if (!hidden) return;
+    hidden.value = idx;
+    hidden.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // Modified performQuickSearch to optionally return matches for aggregation
+  function performQuickSearch(searchTerm, showNotification = true, pageNum = 1) {
     // Clear previous highlights
     document.querySelectorAll('.ns-search-highlight').forEach(el => {
       const parent = el.parentNode;
@@ -220,51 +223,35 @@
         parent.normalize();
       }
     });
-    
     let matchCount = 0;
     let firstMatch = null;
-    
-    // Focus on NetSuite log tables
+    let matches = [];
     const logSelectors = [
       'table[id*="log"] tr td',
       '#div__bodytab tbody tr td',
       '[id*="custpage"] td',
       '.uir-field-wrapper .uir-field',
-      'table tr td',  // More general table cells
-      '.uir-field'    // More general NetSuite fields
+      'table tr td',
+      '.uir-field'
     ];
-    
-    // Process each selector
     logSelectors.forEach(selector => {
       const elements = document.querySelectorAll(selector);
       elements.forEach(el => {
-        // Skip if element is already processed
         if (el.querySelector('.ns-search-highlight')) return;
-        
-        // Get text content
         const text = el.textContent || el.innerText || '';
         if (!text) return;
-        
-        // Check for match
         const searchTermLower = searchTerm.toLowerCase();
         const textLower = text.toLowerCase();
-        
         if (textLower.includes(searchTermLower)) {
-          // Store original HTML
           const originalHTML = el.innerHTML;
-          
-          // Create a temporary container
           const temp = document.createElement('div');
           temp.innerHTML = originalHTML;
-          
-          // Function to process text nodes
           function processTextNodes(node) {
             if (node.nodeType === Node.TEXT_NODE) {
               const text = node.textContent;
               if (text.toLowerCase().includes(searchTermLower)) {
                 const parts = text.split(new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi'));
                 const fragment = document.createDocumentFragment();
-                
                 parts.forEach(part => {
                   if (part.toLowerCase() === searchTermLower) {
                     const span = document.createElement('span');
@@ -273,42 +260,63 @@
                     span.style.fontWeight = 'bold';
                     span.classList.add('ns-search-highlight');
                     fragment.appendChild(span);
-                    
                     if (!firstMatch) {
                       firstMatch = span;
                     }
                     matchCount++;
+                    // Add to matches for aggregation
+                    const contextText = text.length > 200 ? text.substring(0, 200) + '...' : text;
+                    matches.push({
+                      text: contextText,
+                      position: {
+                        top: span.getBoundingClientRect().top,
+                        left: span.getBoundingClientRect().left
+                      },
+                      page: pageNum
+                    });
                   } else {
                     fragment.appendChild(document.createTextNode(part));
                   }
                 });
-                
                 node.parentNode.replaceChild(fragment, node);
               }
             } else if (node.nodeType === Node.ELEMENT_NODE) {
-              // Process child nodes
               Array.from(node.childNodes).forEach(processTextNodes);
             }
           }
-          
-          // Process all text nodes in the temporary container
           processTextNodes(temp);
-          
-          // Update the original element
           el.innerHTML = temp.innerHTML;
         }
       });
     });
-    
-    if (matchCount > 0 && firstMatch) {
-      // Scroll to first match
-      firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      showQuickSearchResult(`Found ${matchCount} matches for "${searchTerm}"`);
-    } else {
-      showQuickSearchResult(`No matches found for "${searchTerm}"`);
+    if (showNotification) {
+      if (matchCount > 0 && firstMatch) {
+        firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        showQuickSearchResult(`Found ${matchCount} matches for "${searchTerm}"`);
+      } else {
+        showQuickSearchResult(`No matches found for "${searchTerm}"`);
+      }
     }
+    return matches;
   }
-  
+
+  // Multi-page search logic
+  async function multiPageSearch(searchTerm) {
+    const results = [];
+    const totalPages = getTotalPages();
+    const { hidden } = getPageDropdownInfo();
+    const originalPage = hidden ? hidden.value : 1;
+    for (let i = 1; i <= totalPages; i++) {
+        goToPageByIndex(i);
+        await new Promise(resolve => setTimeout(resolve, 800)); // Wait for page to load
+        const pageResults = performQuickSearch(searchTerm, false, i);
+        results.push(...pageResults);
+    }
+    // Restore original page
+    goToPageByIndex(originalPage);
+    return results;
+  }
+
   // Show quick search result notification
   function showQuickSearchResult(message) {
     const notification = document.createElement('div');
@@ -341,32 +349,30 @@
     }, 3000);
   }
   
-
-  
-  // Function to highlight search results without DOM manipulation
-  function highlightSearchResults(results) {
-    // Clear previous highlights
-    document.querySelectorAll('.ns-search-highlight').forEach(el => {
-      el.style.backgroundColor = '';
-      el.style.fontWeight = '';
-      el.classList.remove('ns-search-highlight');
-    });
-
-    if (results && results.length > 0) {
-      results.forEach(result => {
-        if (result.element) {
-          result.element.style.backgroundColor = '#ffff99';
-          result.element.style.fontWeight = 'bold';
-          result.element.classList.add('ns-search-highlight');
-        }
+  // Listen for messages from popup
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'getPageInfo') {
+      sendResponse({
+        isLogPage: isLogPage(),
+        pagination: detectPagination(),
+        url: window.location.href
       });
-
-      // Scroll to first match
-      const firstMatch = document.querySelector('.ns-search-highlight');
-      if (firstMatch) {
-        firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+    } else if (request.action === 'searchSelected') {
+      // Handle right-click search
+      performQuickSearch(request.searchTerm);
+    } else if (request.action === 'scrollToPosition') {
+      // Handle scrolling to a specific position
+      const { top, left } = request.position;
+      window.scrollTo({
+        top: top + window.scrollY,
+        left: left + window.scrollX,
+        behavior: 'smooth'
+      });
+    } else if (request.action === 'multiPageSearch') {
+      multiPageSearch(request.searchTerm).then(results => {
+        sendResponse({ results });
+      });
+      return true; // async
     }
-  }
-  
+  });
 })();
