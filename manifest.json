@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "NetSuite Script Log Search",
+  "version": "1.0",
+  "description": "Search terms across multi-page NetSuite script logs",
+  
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "contextMenus"
+  ],
+  
+  "host_permissions": [
+    "*://*.netsuite.com/*"
+  ],
+  
+  "content_scripts": [
+    {
+      "matches": ["*://*.netsuite.com/*"],
+      "js": ["content.js"],
+      "css": ["style.css"]
+    }
+  ],
+  
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "NetSuite Log Search"
+  },
+  
+  "background": {
+    "service_worker": "background.js"
+  }
+}
