@@ -2,4 +2,4 @@ This is a chrome extension to search logs on NetSuite scripts which are hidden i
 ## 🚧 Project Status
 
 > **Status:** 🚧 Work in Progress  
-> We’re still building this. Expect things to break, shift, and evolve quickly!
+> I'm still building this. Expect things to break, shift, and evolve quickly!
