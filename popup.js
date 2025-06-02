@@ -304,78 +304,131 @@ function searchAllPages(searchTerm) {
       const dropdownInput = document.getElementById('inpt_scriptnoterange_3');
       
       if (dropdownInput) {
-        // Simulate the complete sequence of events
-        const events = [
-          new MouseEvent('mouseover', { bubbles: true }),
-          new MouseEvent('mousedown', { bubbles: true }),
-          new FocusEvent('focus', { bubbles: true }),
-          new MouseEvent('mouseup', { bubbles: true }),
-          new MouseEvent('click', { bubbles: true })
-        ];
+        // Focus the input first
+        dropdownInput.focus();
         
-        events.forEach(event => {
-          dropdownInput.dispatchEvent(event);
+        // Create and dispatch a proper click event
+        const clickEvent = new MouseEvent('click', {
+          view: window,
+          bubbles: true,
+          cancelable: true
         });
         
-        console.log('Complete dropdown interaction simulated');
+        dropdownInput.dispatchEvent(clickEvent);
+        console.log('Dropdown interaction completed');
         return true;
       }
       
       return false;
     }
-    // 2. Wait for dropdown to appear and select an option
+
+    async function waitForDropdown() {
+      return new Promise((resolve) => {
+        let attempts = 0;
+        const maxAttempts = 10;
+        
+        const checkDropdown = () => {
+          const dropdownDiv = document.querySelector('.dropdownDiv');
+          if (dropdownDiv && window.getComputedStyle(dropdownDiv).visibility === 'visible') {
+            console.log('Dropdown is visible');
+            resolve(true);
+            return;
+          }
+          
+          attempts++;
+          if (attempts >= maxAttempts) {
+            console.log('Max attempts reached waiting for dropdown');
+            resolve(false);
+            return;
+          }
+          
+          setTimeout(checkDropdown, 200);
+        };
+        
+        checkDropdown();
+      });
+    }
+
     async function selectDropdownOption(optionText) {
-      // First wait briefly for the dropdown animation
-      await new Promise(resolve => setTimeout(resolve, 300));
-    
-      const maxAttempts = 5;
-      let attempts = 0;
-    
-      while (attempts < maxAttempts) {
-        attempts++;
+      try {
+        // 1. Find all relevant elements
+        const rangeInput = document.querySelector('input[name="inpt_scriptnoterange"]');
+        const hiddenInput = document.querySelector('input[name="scriptnoterange"]');
         
-        // Find the visible dropdown container
-        const dropdownDiv = document.querySelector('.dropdownDiv[style*="visibility: visible"], .dropdownDiv[style*="display: block"]');
-        
-        if (!dropdownDiv) {
-          console.log(`Dropdown not found (attempt ${attempts})`);
-          await new Promise(resolve => setTimeout(resolve, 200));
-          continue;
-        }
-    
-        // Find all option elements
-        const options = dropdownDiv.querySelectorAll('div[id^="nl"]');
-        if (options.length === 0) {
-          console.log('No options found in dropdown');
+        if (!rangeInput || !hiddenInput) {
+          console.error('Required elements not found');
           return false;
         }
-    
-        // Find the matching option (case insensitive, trimmed comparison)
-        const targetOption = Array.from(options).find(opt => 
-          opt.textContent.trim().toLowerCase() === optionText.toLowerCase().trim()
-        );
-    
-        if (targetOption) {
-          // Simulate complete mouse interaction for maximum reliability
-          const events = [
-            new MouseEvent('mouseover', { bubbles: true }),
-            new MouseEvent('mousedown', { bubbles: true }),
-            new MouseEvent('mouseup', { bubbles: true }),
-            new MouseEvent('click', { bubbles: true })
-          ];
-    
-          events.forEach(event => targetOption.dispatchEvent(event));
-          
-          console.log(`Selected option: "${optionText}"`);
-          return true;
+
+        console.log('Found all required elements');
+
+        // 2. Open dropdown and wait for it to be visible
+        openDropdownThorough();
+        const isDropdownVisible = await waitForDropdown();
+        
+        if (!isDropdownVisible) {
+          console.error('Dropdown failed to become visible');
+          return false;
         }
-    
-        console.log(`Option "${optionText}" not found (attempt ${attempts})`);
-        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // 3. Find the target option
+        const dropdownDiv = document.querySelector('.dropdownDiv');
+        if (!dropdownDiv) {
+          console.error('Dropdown div not found');
+          return false;
+        }
+
+        const options = dropdownDiv.querySelectorAll('div[id^="nl"]');
+        console.log('Found options:', options.length);
+        
+        const targetOption = Array.from(options).find(opt => 
+          opt.textContent.trim() === optionText
+        );
+
+        if (!targetOption) {
+          console.error(`Option "${optionText}" not found`);
+          return false;
+        }
+
+        console.log('Found target option:', targetOption.textContent);
+
+        // 4. Update all relevant inputs
+        rangeInput.value = optionText;
+        rangeInput.setAttribute('title', optionText);
+        hiddenInput.value = targetOption.id.replace('nl', '');
+
+        // 5. Create and dispatch proper events
+        const events = [
+          new Event('change', { bubbles: true }),
+          new Event('input', { bubbles: true }),
+          new Event('blur', { bubbles: true })
+        ];
+
+        // Dispatch events on both inputs
+        [rangeInput, hiddenInput].forEach(input => {
+          events.forEach(event => {
+            input.dispatchEvent(event);
+          });
+        });
+
+        // 6. Click the target option
+        const optionClickEvent = new MouseEvent('click', {
+          view: window,
+          bubbles: true,
+          cancelable: true
+        });
+        
+        targetOption.dispatchEvent(optionClickEvent);
+        console.log('Clicked target option');
+
+        // 7. Wait for the page to update
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        return true;
+
+      } catch (error) {
+        console.error('Error during dropdown interaction:', error);
+        return false;
       }
-    
-      console.error(`Failed to select option after ${maxAttempts} attempts`);
-      return false;
     }
     
     // Function to go to next page
@@ -407,7 +460,7 @@ function searchAllPages(searchTerm) {
       // Click the dropdown to open it
       try {
         openDropdownThorough();
-        const success = await selectDropdownOption('26 to 50 of 100');
+        const success = await selectDropdownOption('51 to 75 of 100');
   
         if (success) {
           // Wait for page to load
